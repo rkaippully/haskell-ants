@@ -1,0 +1,5 @@
+flags: {}
+packages:
+- '.'
+extra-deps: [wx-0.91.0.0, wxcore-0.91.0.0, wxc-0.91.0.0, wxdirect-0.91.0.0]
+resolver: lts-2.19
