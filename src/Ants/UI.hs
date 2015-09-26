@@ -81,6 +81,7 @@ renderPlace dc cell x y = do
 
 paintWorld :: World -> DC a -> Rect -> IO ()
 paintWorld world dc _ = do
+  dcClear dc
   set dc [brushColor := white, brushKind := BrushSolid]
   drawRect dc (rectBetween (point scale scale) (point ((dim+1)*scale) ((dim+1)*scale))) []
   -- Draw home
