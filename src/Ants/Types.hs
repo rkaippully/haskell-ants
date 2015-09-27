@@ -2,19 +2,20 @@
   Ants simulation - Types
 -}
 
-{-# LANGUAGE DeriveGeneric #-}
-
 module Ants.Types (
   -- * Object types
   Pos, Direction(..), Ant(..), Cell(..), World
 
-  -- other constants
+  -- * Map operations
+  , Map(), newMap, (%), unionWith
+
+  -- * Other constants
   , dim, nantsSqrt, homeOffset
 
-  -- World creation
+  -- * World creation
   , createWorld, setupWorld
 
-  -- Utils
+  -- * Utility functions
   , updateTVar
   ) where
 
@@ -22,30 +23,42 @@ import System.Random
 import Control.Concurrent.STM
 import Control.Monad
 import Data.Array.IArray
-import Data.Hashable
-import GHC.Generics (Generic)
+import Data.Maybe
+
+-- Map operations
+type Map k v = [(k, v)]
+
+-- create a new map from lists of keys and values
+newMap :: [k] -> [v] -> Map k v
+newMap = zip
+
+-- Map look up
+(%) :: (Eq k) => Map k v -> k -> v
+m % k = fromMaybe (error "Key not found") (lookup k m)
+
+-- union two maps with a function. O(n^2)
+unionWith :: (Eq k) => (v -> v -> v) -> Map k v -> Map k v -> Map k v
+unionWith _ m1 [] = m1
+unionWith f m1 ((k2, v2):xs) =
+  case lookup k2 m1 of
+    Nothing -> (k2, v2):unionWith f m1 xs
+    Just v1 -> (k2, f v1 v2):unionWith f m1 xs
 
 
 data Direction = N | NE | E | SE | S | SW | W | NW
-               deriving (Show, Enum, Eq, Ord, Ix, Generic)
-
-instance Hashable Direction
+               deriving (Show, Enum, Eq, Ord, Ix)
 
 data Ant = Ant {
     direction :: Direction
   , hasFood :: Bool
-  } deriving (Show, Eq, Generic)
-
-instance Hashable Ant
+  } deriving (Show, Eq)
 
 data Cell = Cell {
     foodQty :: Int
   , pheromoneQty :: Int
   , antInCell :: Maybe Ant
   , isHome :: Bool
-  } deriving (Show, Eq, Generic)
-
-instance Hashable Cell
+  } deriving (Show, Eq)
 
 -- coordinate position of a cell in x or y axis
 type Pos = Int
@@ -59,7 +72,7 @@ dim = 80
 
 -- number of ants = nantsSqrt^2
 nantsSqrt :: Int
-nantsSqrt = 1
+nantsSqrt = 4
 
 -- number of places with food
 foodPlaces :: Int

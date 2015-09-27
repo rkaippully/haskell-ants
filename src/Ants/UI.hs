@@ -13,6 +13,7 @@ import Control.Monad
 import Data.Array.IArray
 import Graphics.UI.WXCore.WxcTypes
 import Graphics.UI.WX hiding (when)
+import System.Random
 
 -- Pixels per world cell
 scale :: Int
@@ -92,7 +93,7 @@ paintWorld world dc _ = do
                             cell <- atomically $ readTVar var
                             renderPlace dc cell x y)
 animationSleepMS :: Int
-animationSleepMS = 100000
+animationSleepMS = 50000
 
 animation :: Panel a -> IO ()
 animation p = do
@@ -111,7 +112,8 @@ startUI = start $ do
   -- Start threads
   _ <- forkIO $ animation p
   _ <- forkIO $ evaporation world
-  sequence_ [forkIO $ antBehavior (world, x, y) |
+  gen <- getStdGen
+  sequence_ [forkIO $ antBehavior (world, x, y) gen |
                x <- [homeOffset..homeOffset+nantsSqrt-1]
              , y <- [homeOffset..homeOffset+nantsSqrt-1]]
 
