@@ -26,13 +26,8 @@ type CellLoc = (World, Pos, Pos)
 
 -- Sleep timings in microseconds
 antSleepMS :: Int
-antSleepMS = 100000
+antSleepMS = 40000
 
-
--- Returns a position bounded by the world limits. The world wraps around at the
--- edges
-bounded :: Pos -> Pos
-bounded v = v `mod` dim
 
 -- Get the cell at the specified location
 getCell :: CellLoc -> StateSTM (TVar Cell, Cell)
@@ -56,6 +51,11 @@ cellAtLoc (w, x, y) ant dir = do
     SW -> (w, bounded (x-1), bounded (y+1))
     W  -> (w, bounded (x-1), y)
     NW -> (w, bounded (x-1), bounded (y-1))
+  where
+    -- Returns a position bounded by the world limits. The world wraps around at the
+    -- edges
+    bounded :: Pos -> Pos
+    bounded v = ((v - 1) `mod` dim) + 1
 
 -- The cell in the direction the ant is facing
 cellAhead :: CellLoc -> Ant -> StateSTM (TVar Cell)
@@ -101,7 +101,7 @@ turn loc ant amt = do
 moveForward :: CellLoc -> Ant -> StateSTM CellLoc
 moveForward loc ant = do
   (var, cell) <- getCell loc
-  newLoc<- cellAtLoc loc ant N
+  newLoc <- cellAtLoc loc ant N
   (newVar, _) <- getCell newLoc
   -- Move the ant
   lift $ updateTVar (\c -> c{antInCell = Nothing}) var

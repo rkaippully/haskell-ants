@@ -85,21 +85,24 @@ paintWorld world dc _ = do
   dcClear dc
   set dc [brushColor := white, brushKind := BrushSolid]
   drawRect dc (rectBetween (point scale scale) (point ((dim+1)*scale) ((dim+1)*scale))) []
+  -- Draw places
+  forM_ (assocs world) (\((x, y), var) -> do
+                            cell <- readTVarIO var
+                            renderPlace dc cell x y)
   -- Draw home
   set dc [penColor := blue]
   drawSquare dc (homeOffset*scale) (homeOffset*scale) (nantsSqrt*scale) (nantsSqrt*scale)
-  -- Draw places
-  forM_ (assocs world) (\ ((x, y), var) -> do
-                            cell <- atomically $ readTVar var
-                            renderPlace dc cell x y)
-animationSleepMS :: Int
-animationSleepMS = 50000
+  putStrLn "Done"
 
-animation :: Panel a -> IO ()
-animation p = do
+animationSleepMS :: Int
+animationSleepMS = 300000
+
+animation :: Int -> Panel a -> IO ()
+animation count p = do
+  putStrLn $ "Painting " ++ show count
   repaint p
   threadDelay animationSleepMS
-  animation p
+  animation (count+1) p
 
 startUI :: IO ()
 startUI = start $ do
@@ -110,9 +113,9 @@ startUI = start $ do
                , on paint := paintWorld world]
 
   -- Start threads
-  _ <- forkIO $ animation p
+  _ <- forkIO $ animation 0 p
   _ <- forkIO $ evaporation world
-  gen <- getStdGen
+  gen <- newStdGen
   sequence_ [forkIO $ antBehavior (world, x, y) gen |
                x <- [homeOffset..homeOffset+nantsSqrt-1]
              , y <- [homeOffset..homeOffset+nantsSqrt-1]]
