@@ -107,8 +107,7 @@ paintWorld world dw = do
     (nantsSqrt*scale) (nantsSqrt*scale)
 
 animationSleepMS :: Int
-animationSleepMS = 80000
---animationSleepMS = 300000
+animationSleepMS = 100000
 
 animation :: DrawingArea -> IO ()
 animation da = do

@@ -40,9 +40,12 @@ m % k = fromMaybe (error "Key not found") (lookup k m)
 unionWith :: (Eq k) => (v -> v -> v) -> Map k v -> Map k v -> Map k v
 unionWith _ m1 [] = m1
 unionWith f m1 ((k2, v2):xs) =
-  case lookup k2 m1 of
-    Nothing -> (k2, v2):unionWith f m1 xs
-    Just v1 -> (k2, f v1 v2):unionWith f m1 xs
+  unionWith f (apply k2 v2 m1) xs
+  where
+    apply k v [] = [(k, v)]
+    apply k v ((k', v'):xs') = if k == k'
+                               then (k, f v v'):xs'
+                               else (k', v'):apply k v xs'
 
 
 data Direction = N | NE | E | SE | S | SW | W | NW

@@ -27,7 +27,7 @@ type CellLoc = (World, Pos, Pos)
 
 -- Sleep timings in microseconds
 antSleepMS :: Int
-antSleepMS = 80000
+antSleepMS = 100000
 
 
 -- Get the cell at the specified location
@@ -39,9 +39,11 @@ getCell (w, x, y) = do
 -- Returns the location of the cell specified by an offset
 -- For example, cellAtLoc loc N will return the cell just ahead of the ant.
 -- cellAtLoc loc NE will return the cell NE of the ant and so on.
-cellAtLoc :: CellLoc -> Ant -> Direction -> StateSTM CellLoc
-cellAtLoc (w, x, y) ant dir = do
-  let targetDir =
+cellAtLoc :: CellLoc -> Direction -> StateSTM CellLoc
+cellAtLoc loc@(w, x, y) dir = do
+  (_, cell) <- getCell loc
+  let ant = fromJust $ antInCell cell
+      targetDir =
         toEnum $ (fromEnum (direction ant) + fromEnum dir - fromEnum N) `mod` 8
   return $ case targetDir of
     N  -> (w, x, bounded (y-1))
@@ -53,56 +55,60 @@ cellAtLoc (w, x, y) ant dir = do
     W  -> (w, bounded (x-1), y)
     NW -> (w, bounded (x-1), bounded (y-1))
   where
-    -- Returns a position bounded by the world limits. The world wraps around at the
-    -- edges
+    -- Returns a position bounded by the world limits. The world wraps around at
+    -- the edges
     bounded :: Pos -> Pos
     bounded v = ((v - 1) `mod` dim) + 1
 
 -- The cell in the direction the ant is facing
-cellAhead :: CellLoc -> Ant -> StateSTM (TVar Cell)
-cellAhead loc ant = do
-  (w, x, y) <- cellAtLoc loc ant N
+cellAhead :: CellLoc -> StateSTM (TVar Cell)
+cellAhead loc = do
+  (w, x, y) <- cellAtLoc loc N
   return $ w!(x, y)
 
 -- The cell NW of the direction the ant is facing
-cellAheadLeft :: CellLoc -> Ant -> StateSTM (TVar Cell)
-cellAheadLeft loc ant = do
-  (w, x, y) <- cellAtLoc loc ant NW
+cellAheadLeft :: CellLoc -> StateSTM (TVar Cell)
+cellAheadLeft loc = do
+  (w, x, y) <- cellAtLoc loc NW
   return $ w!(x, y)
 
 -- The cell NE of the direction the ant is facing
-cellAheadRight :: CellLoc -> Ant -> StateSTM (TVar Cell)
-cellAheadRight loc ant = do
-  (w, x, y) <- cellAtLoc loc ant NE
+cellAheadRight :: CellLoc -> StateSTM (TVar Cell)
+cellAheadRight loc = do
+  (w, x, y) <- cellAtLoc loc NE
   return $ w!(x, y)
 
 -- Ant takes one food from the current cell
-takeFood :: CellLoc -> Ant -> StateSTM ()
-takeFood loc ant = do
-  (cell, _) <- getCell loc
+takeFood :: CellLoc -> StateSTM ()
+takeFood loc = do
+  (var, cell) <- getCell loc
+  let ant = fromJust $ antInCell cell
   lift $ updateTVar (\c -> c{foodQty = foodQty c - 1,
-                             antInCell = Just (ant{hasFood = True})}) cell
+                             antInCell = Just (ant{hasFood = True})}) var
 
 -- Drop food carried by ant at the current cell
-dropFood :: CellLoc -> Ant -> StateSTM ()
-dropFood loc ant = do
-  (cell, _) <- getCell loc
+dropFood :: CellLoc -> StateSTM ()
+dropFood loc = do
+  (var, cell) <- getCell loc
+  let ant = fromJust $ antInCell cell
   lift $ updateTVar (\c -> c{foodQty = foodQty c + 1,
-                             antInCell = Just (ant{hasFood = False})}) cell
+                             antInCell = Just (ant{hasFood = False})}) var
 
 -- turn ant at a cell by the specified amount
-turn :: CellLoc -> Ant -> Int -> StateSTM CellLoc
-turn loc ant amt = do
-  (var, _) <- getCell loc
-  let newDir = toEnum $ (fromEnum(direction ant) + amt) `mod` 8
+turn :: CellLoc -> Int -> StateSTM CellLoc
+turn loc amt = do
+  (var, cell) <- getCell loc
+  let ant = fromJust $ antInCell cell
+      newDir = toEnum $ (fromEnum(direction ant) + amt) `mod` 8
   lift $ updateTVar (\c -> c{antInCell = Just ant{direction = newDir}}) var
   return loc
 
 -- Move the ant in forward direction. Returns the new location
-moveForward :: CellLoc -> Ant -> StateSTM CellLoc
-moveForward loc ant = do
+moveForward :: CellLoc -> StateSTM CellLoc
+moveForward loc = do
   (var, cell) <- getCell loc
-  newLoc <- cellAtLoc loc ant N
+  let ant = fromJust $ antInCell cell
+  newLoc <- cellAtLoc loc N
   (newVar, _) <- getCell newLoc
   -- Move the ant
   lift $ updateTVar (\c -> c{antInCell = Nothing}) var
@@ -152,24 +158,24 @@ wrand weights = do
 -- current, NW, and NE cells and one of the above three options are picked at
 -- random with a probability of those weights.
 makeMove :: CellLoc
-         -> Ant
          -> (Cell -> Int)
          -> (Cell -> Int)
          -> StateSTM CellLoc
-makeMove loc ant f g = do
-  ahead <- cellAhead loc ant
-  aheadLeft <- cellAheadLeft loc ant
-  aheadRight <- cellAheadRight loc ant
+makeMove loc f g = do
+  ahead <- cellAhead loc
+  aheadLeft <- cellAheadLeft loc
+  aheadRight <- cellAheadRight loc
   aheadIsEmpty <- lift $ liftM (isNothing . antInCell) $ readTVar ahead
   let f' = lifted f
       g' = lifted g
   ranks <- computeRanks [ahead, aheadLeft, aheadRight] f' g'
-  let fns = [moveForward loc ant, turn loc ant (-1), turn loc ant 1]
-      -- move ahead, turn NW, or turn NE based on a weighted random
+  trace (show (map snd ranks)) $ return ()
+  let fns = [moveForward loc, turn loc (-1), turn loc 1]
+  -- move ahead, turn NW, or turn NE based on a weighted random
   idx <- if aheadIsEmpty
          then wrand [ranks%ahead, ranks%aheadLeft, ranks%aheadRight]
          else wrand [0, ranks%aheadLeft, ranks%aheadRight]
-  fns!!idx
+  trace ("moves to " ++ show idx) $ fns!!idx
   where
     lifted :: (Cell -> Int) -> TVar Cell -> STM Int
     lifted fn var = do
@@ -177,40 +183,40 @@ makeMove loc ant f g = do
       return $ fn cell
 
 -- Ant with food going home. Returns the new position of the ant
-goHome :: CellLoc -> Ant -> StateSTM CellLoc
-goHome loc ant = do
+goHome :: CellLoc -> StateSTM CellLoc
+goHome loc = do
   (_, cell) <- getCell loc
-  ahead <- cellAhead loc ant >>= lift . readTVar
+  ahead <- cellAhead loc >>= lift . readTVar
   let aheadIsEmpty = isNothing (antInCell ahead)
   -- case 1: reached home
   if isHome cell then do
-    dropFood loc ant
-    turn loc ant 4
+    dropFood loc
+    turn loc 4
   -- case 2: home is just ahead and is empty
   else if isHome ahead && aheadIsEmpty then
-    moveForward loc ant
+    moveForward loc
   -- case 3: find home direction using pheromone trail
   else
-    makeMove loc ant homeRank pheromoneQty
+    makeMove loc homeRank pheromoneQty
     where
       homeRank :: Cell -> Int
       homeRank cell = if isHome cell then 1 else 0
 
-forage :: CellLoc -> Ant -> StateSTM CellLoc
-forage loc ant = do
+forage :: CellLoc -> StateSTM CellLoc
+forage loc = do
   (_, cell) <- getCell loc
-  ahead <- cellAhead loc ant >>= lift . readTVar
+  ahead <- cellAhead loc >>= lift . readTVar
   let aheadIsEmpty = isNothing (antInCell ahead)
   -- case 1: food found
   if foodQty cell > 0 && not (isHome cell) then do
-    takeFood loc ant
-    turn loc ant 4
+    takeFood loc
+    turn loc 4
   -- case 2: food is just ahead and that cell is empty
   else if foodQty ahead > 0 && not (isHome ahead) && aheadIsEmpty then
-    moveForward loc ant
+    moveForward loc
   -- case 3: pick the best cell ahead
   else
-    makeMove loc ant foodQty pheromoneQty
+    makeMove loc foodQty pheromoneQty
 
 -- Ant behavior. Returns the new position of the ant
 behave :: CellLoc -> StdGen -> IO (CellLoc, StdGen)
@@ -222,8 +228,8 @@ behave loc gen =
       (_, cell) <- getCell loc
       let ant = fromJust $ antInCell cell
       if hasFood ant
-        then goHome loc ant
-        else forage loc ant
+        then goHome loc
+        else forage loc
 
 antBehavior :: CellLoc -> StdGen -> IO ()
 antBehavior loc gen = do
