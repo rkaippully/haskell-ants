@@ -10,10 +10,12 @@ import Ants.Evaporation
 import Control.Concurrent
 import Control.Concurrent.STM
 import Control.Monad
+import Control.Monad.Trans
 import Data.Array.IArray
-import Graphics.UI.WXCore.WxcTypes
-import Graphics.UI.WX hiding (when)
+import Data.Word
 import System.Random
+import Graphics.UI.Gtk
+import Graphics.UI.Gtk.Gdk.GC
 
 -- Pixels per world cell
 scale :: Int
@@ -27,23 +29,31 @@ pheromoneScale = 20.0
 foodScale :: Double
 foodScale = 30.0
 
-drawSquare :: DC a -> Int -> Int -> Int -> Int -> IO ()
-drawSquare dc x y w h =
-  polyline dc [ point x y
-              , point (x+w) y
-              , point (x+w) (y+h)
-              , point x (y+h)
-              , point x y] []
+white :: Color
+white = Color 65535 65535 65535
 
-fillCell :: DC a -> Int -> Int -> Color -> IO ()
-fillCell dc x y c = do
-  set dc [brushColor := c, brushKind := BrushSolid, penColor := white]
-  drawRect dc (rect (point (x*scale) (y*scale)) (sz scale scale)) []
+black :: Color
+black = Color 0 0 0
 
-renderAnt :: DC a -> Maybe Ant -> Int -> Int -> IO ()
-renderAnt _ Nothing _ _ = return ()
-renderAnt dc (Just ant) x y =
-  line dc startPoint endPoint [penColor := c]
+blue :: Color
+blue = Color 0 0 65535
+
+green :: Color
+green = Color 0 65535 0
+
+red :: Color
+red = Color 65535 0 0
+
+fillCell :: DrawWindow -> Int -> Int -> Color -> IO ()
+fillCell dw x y c = do
+  gc <- gcNewWithValues dw newGCValues{foreground = c, background = white}
+  drawRectangle dw gc True (x*scale) (y*scale) scale scale
+
+renderAnt :: DrawWindow -> GC -> Maybe Ant -> Int -> Int -> IO ()
+renderAnt _ _ Nothing _ _ = return ()
+renderAnt dw gc (Just ant) x y = do
+  gcSetValues gc newGCValues{foreground = c, background = white}
+  drawLine dw gc startPoint endPoint
   where
     c = if hasFood ant then red else black
     (startPoint, endPoint) =
@@ -57,67 +67,81 @@ renderAnt dc (Just ant) x y =
         bm = (x*scale+mid, (y+1)*scale-1)
         bl = (x*scale, (y+1)*scale-1)
         ml = (x*scale, y*scale+mid)
-        toPoint (a, b) = point a b
       in
       case direction ant of
-      N  -> (toPoint tm, toPoint bm)
-      NE -> (toPoint tr, toPoint bl)
-      E  -> (toPoint mr, toPoint ml)
-      SE -> (toPoint br, toPoint tl)
-      S  -> (toPoint bm, toPoint tm)
-      SW -> (toPoint bl, toPoint tr)
-      W  -> (toPoint ml, toPoint mr)
-      NW -> (toPoint tl, toPoint br)
+      N  -> (tm, bm)
+      NE -> (tr, bl)
+      E  -> (mr, ml)
+      SE -> (br, tl)
+      S  -> (bm, tm)
+      SW -> (bl, tr)
+      W  -> (ml, mr)
+      NW -> (tl, br)
 
-renderPlace :: DC a -> Cell -> Int -> Int -> IO ()
-renderPlace dc cell x y = do
-  when (pheromoneQty cell > 0) $
-    fillCell dc x y (rgba 0 255 0 (scaled (pheromoneQty cell) pheromoneScale))
-  when (foodQty cell > 0) $
-    fillCell dc x y (rgba 255 0 0 (scaled (foodQty cell) foodScale))
-  renderAnt dc (antInCell cell) x y
+scaled :: Color -> Int -> Double -> Color
+scaled (Color r g b) v s = Color (trans r) (trans g) (trans b)
   where
-    scaled :: Int -> Double -> Int
-    scaled v s = min 255 (round ((fromIntegral v/s)*255.0))
+    trans :: Word16 -> Word16
+    trans x = min 65535 (round (fromIntegral x * s / fromIntegral v))
 
-paintWorld :: World -> DC a -> Rect -> IO ()
-paintWorld world dc _ = do
-  dcClear dc
-  set dc [brushColor := white, brushKind := BrushSolid]
-  drawRect dc (rectBetween (point scale scale) (point ((dim+1)*scale) ((dim+1)*scale))) []
+renderPlace :: DrawWindow -> GC -> Cell -> Int -> Int -> IO ()
+renderPlace dw gc cell x y = do
+  when (pheromoneQty cell > 0) $
+    fillCell dw x y (scaled green (pheromoneQty cell) pheromoneScale)
+  when (foodQty cell > 0) $
+    fillCell dw x y (scaled red (foodQty cell) foodScale)
+  renderAnt dw gc (antInCell cell) x y
+
+paintWorld :: World -> DrawWindow -> IO ()
+paintWorld world dw = do
+  drawWindowClear dw
+  gc <- gcNewWithValues dw newGCValues{foreground = white}
+  drawRectangle dw gc True scale scale (dim*scale) (dim*scale)
   -- Draw places
   forM_ (assocs world) (\((x, y), var) -> do
                             cell <- readTVarIO var
-                            renderPlace dc cell x y)
+                            renderPlace dw gc cell x y)
   -- Draw home
-  set dc [penColor := blue]
-  drawSquare dc (homeOffset*scale) (homeOffset*scale) (nantsSqrt*scale) (nantsSqrt*scale)
-  putStrLn "Done"
+  gcSetValues gc newGCValues{foreground = blue}
+  drawRectangle dw gc False (homeOffset*scale) (homeOffset*scale)
+    (nantsSqrt*scale) (nantsSqrt*scale)
 
 animationSleepMS :: Int
-animationSleepMS = 300000
+animationSleepMS = 80000
+--animationSleepMS = 300000
 
-animation :: Int -> Panel a -> IO ()
-animation count p = do
-  putStrLn $ "Painting " ++ show count
-  repaint p
+animation :: DrawingArea -> IO ()
+animation da = do
+  postGUISync $ widgetQueueDraw da
   threadDelay animationSleepMS
-  animation (count+1) p
+  animation da
 
 startUI :: IO ()
-startUI = start $ do
+startUI = do
+  initGUI
   world <- setupWorld
-  f <- frameFixed [ text := "Haskell Ants Demo"
-                  , clientSize := sz ((dim+2)*scale) ((dim+7)*scale)]
-  p <- panel f [ position := point scale scale
-               , on paint := paintWorld world]
+  window <- windowNew
+  set window [windowTitle := "Haskell Ants Demo"]
+  window `on` deleteEvent $ liftIO mainQuit >> return False
+
+  da <- drawingAreaNew
+  set da [widgetWidthRequest := (dim + 2)*scale
+         , widgetHeightRequest := (dim + 2)*scale]
+  window `containerAdd` da
+  da `on` exposeEvent $ do
+    dw <- eventWindow
+    lift $ paintWorld world dw
+    return True
+
+  widgetShowAll window
 
   -- Start threads
-  _ <- forkIO $ animation 0 p
+  _ <- forkIO $ animation da
   _ <- forkIO $ evaporation world
   gen <- newStdGen
   sequence_ [forkIO $ antBehavior (world, x, y) gen |
                x <- [homeOffset..homeOffset+nantsSqrt-1]
              , y <- [homeOffset..homeOffset+nantsSqrt-1]]
 
+  mainGUI
   return ()

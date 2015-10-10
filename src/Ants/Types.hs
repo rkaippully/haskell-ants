@@ -72,7 +72,7 @@ dim = 80
 
 -- number of ants = nantsSqrt^2
 nantsSqrt :: Int
-nantsSqrt = 4
+nantsSqrt = 1
 
 -- number of places with food
 foodPlaces :: Int

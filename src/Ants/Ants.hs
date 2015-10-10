@@ -17,6 +17,7 @@ import Data.Maybe
 import Data.Ord
 import Ants.Types
 import System.Random
+import Debug.Trace
 
 -- State monad transformer
 type StateSTM = StateT StdGen STM
@@ -26,7 +27,7 @@ type CellLoc = (World, Pos, Pos)
 
 -- Sleep timings in microseconds
 antSleepMS :: Int
-antSleepMS = 40000
+antSleepMS = 80000
 
 
 -- Get the cell at the specified location
