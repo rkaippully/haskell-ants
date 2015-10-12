@@ -22,12 +22,12 @@ scale :: Int
 scale = 7
 
 -- scale factor for pheromone drawing
-pheromoneScale :: Double
-pheromoneScale = 20.0
+pheromoneScale :: Int
+pheromoneScale = 300
 
 -- scale factor for food drawing
-foodScale :: Double
-foodScale = 30.0
+foodScale :: Int
+foodScale = 200
 
 white :: Color
 white = Color 65535 65535 65535
@@ -78,11 +78,14 @@ renderAnt dw gc (Just ant) x y = do
       W  -> (ml, mr)
       NW -> (tl, br)
 
-scaled :: Color -> Int -> Double -> Color
+scaled :: Color -> Int -> Int -> Color
 scaled (Color r g b) v s = Color (trans r) (trans g) (trans b)
   where
     trans :: Word16 -> Word16
-    trans x = min 65535 (round (fromIntegral x * s / fromIntegral v))
+    trans x = if x == 65535
+              then 65535
+              else 55000 - fromIntegral (v * s)
+    --trans x = min 65535 (round (fromIntegral x * s / fromIntegral v))
 
 renderPlace :: DrawWindow -> GC -> Cell -> Int -> Int -> IO ()
 renderPlace dw gc cell x y = do

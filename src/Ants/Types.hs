@@ -7,7 +7,7 @@ module Ants.Types (
   Pos, Direction(..), Ant(..), Cell(..), World
 
   -- * Map operations
-  , Map(), newMap, (%), unionWith
+  , Map(), newMap, (%), unionWith, keys, values
 
   -- * Other constants
   , dim, nantsSqrt, homeOffset
@@ -35,6 +35,13 @@ newMap = zip
 -- Map look up
 (%) :: (Eq k) => Map k v -> k -> v
 m % k = fromMaybe (error "Key not found") (lookup k m)
+
+-- Keys and values
+keys :: Map k v -> [k]
+keys = map fst
+
+values :: Map k v -> [v]
+values = map snd
 
 -- union two maps with a function. O(n^2)
 unionWith :: (Eq k) => (v -> v -> v) -> Map k v -> Map k v -> Map k v
@@ -71,11 +78,11 @@ type World = Array (Pos, Pos) (TVar Cell)
 
 -- dimensions of square world
 dim :: Pos
-dim = 80
+dim = 90
 
 -- number of ants = nantsSqrt^2
 nantsSqrt :: Int
-nantsSqrt = 1
+nantsSqrt = 7
 
 -- number of places with food
 foodPlaces :: Int

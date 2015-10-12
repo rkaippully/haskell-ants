@@ -17,7 +17,6 @@ import Data.Maybe
 import Data.Ord
 import Ants.Types
 import System.Random
-import Debug.Trace
 
 -- State monad transformer
 type StateSTM = StateT StdGen STM
@@ -27,7 +26,7 @@ type CellLoc = (World, Pos, Pos)
 
 -- Sleep timings in microseconds
 antSleepMS :: Int
-antSleepMS = 100000
+antSleepMS = 80000
 
 
 -- Get the cell at the specified location
@@ -111,33 +110,28 @@ moveForward loc = do
   newLoc <- cellAtLoc loc N
   (newVar, _) <- getCell newLoc
   -- Move the ant
-  lift $ updateTVar (\c -> c{antInCell = Nothing}) var
-  lift $ updateTVar (\c -> c{antInCell = Just ant}) newVar
-  -- Leave pheromone trail at the old cell
-  unless (isHome cell) $
-    lift $ updateTVar (\c -> c{pheromoneQty = pheromoneQty c + 1}) var
+  lift $ do
+    updateTVar (\c -> c{antInCell = Nothing}) var
+    updateTVar (\c -> c{antInCell = Just ant}) newVar
+    unless (isHome cell) $
+      updateTVar (\c -> c{pheromoneQty = pheromoneQty c + 1}) var
   return newLoc
 
 -- Returns a map of xs to their 1-based rank when sorted by fn
-rankBy :: (Ord v) => (k -> STM v) -> [k] -> StateSTM (Map k Int)
-rankBy fn xs = do
-  ts <- lift $ mapM makeTuple xs
-  let sorted = sortBy (comparing fst) ts
-  return $ newMap (map snd sorted) [1..(length xs)]
-  where
-    makeTuple k = do
-      v <- fn k
-      return (v, k)
+rankBy :: (Ord v) => (k -> v) -> [k] -> Map k Int
+rankBy fn xs =
+  let ts = map (\k -> (fn k, k)) xs
+      sorted = sortBy (comparing fst) ts
+  in
+    newMap (map snd sorted) [1..(length xs)]
 
-computeRanks :: (Eq k, Ord v) =>
-                [k]
-             -> (k -> STM v)
-             -> (k -> STM v)
-             -> StateSTM (Map k Int)
-computeRanks places f g = do
-  m1 <- rankBy f places
-  m2 <- rankBy g places
-  return $ unionWith (+) m1 m2
+computeRanks :: (Eq k, Ord v) => [k] -> (k -> v) -> (k -> v) -> Map k Int
+computeRanks places f g =
+  let
+    m1 = rankBy f places
+    m2 = rankBy g places
+  in
+    unionWith (+) m1 m2
 
 -- Given a list of weights, returns the value picked by a random spin of a
 -- roulette wheel with compartments proportional to the weights
@@ -149,7 +143,7 @@ wrand weights = do
   return $ findCompartmentOf r 0 0
   where
     findCompartmentOf r i total =
-      if r < weights!!i + total
+      if r < ((weights!!i) + total)
       then i
       else findCompartmentOf r (i + 1) (total + weights!!i)
 
@@ -165,22 +159,16 @@ makeMove loc f g = do
   ahead <- cellAhead loc
   aheadLeft <- cellAheadLeft loc
   aheadRight <- cellAheadRight loc
+  cells <- lift $ mapM readTVar [ahead, aheadLeft, aheadRight]
   aheadIsEmpty <- lift $ liftM (isNothing . antInCell) $ readTVar ahead
-  let f' = lifted f
-      g' = lifted g
-  ranks <- computeRanks [ahead, aheadLeft, aheadRight] f' g'
-  trace (show (map snd ranks)) $ return ()
-  let fns = [moveForward loc, turn loc (-1), turn loc 1]
+  let rankMap = computeRanks cells f g
+      ranks = map (\cell -> rankMap % cell) cells
+      fns = [moveForward loc, turn loc (-1), turn loc 1]
   -- move ahead, turn NW, or turn NE based on a weighted random
   idx <- if aheadIsEmpty
-         then wrand [ranks%ahead, ranks%aheadLeft, ranks%aheadRight]
-         else wrand [0, ranks%aheadLeft, ranks%aheadRight]
-  trace ("moves to " ++ show idx) $ fns!!idx
-  where
-    lifted :: (Cell -> Int) -> TVar Cell -> STM Int
-    lifted fn var = do
-      cell <- readTVar var
-      return $ fn cell
+         then wrand ranks
+         else wrand (0 : tail ranks)
+  fns!!idx
 
 -- Ant with food going home. Returns the new position of the ant
 goHome :: CellLoc -> StateSTM CellLoc
